@@ -62,7 +62,7 @@ trainpath is the location of the training corpus
 
   if mode == 'TRAIN':
     lm = Probs.LanguageModel()
-    lm.setVocabSize(train_file1, train_file2)
+    lm.set_vocab_size(train_file1, train_file2)
     lm.set_smoother(smoother)
     lm.read_vectors(lexicon)
     lm.train(train_file1)
