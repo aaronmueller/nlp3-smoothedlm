@@ -74,6 +74,9 @@ trainpath is the location of the training corpus
       print("warning: no input files specified")
     lm1 = Probs.LanguageModel.load(get_model_filename(smoother, lexicon, train_file1))
     lm2 = Probs.LanguageModel.load(get_model_filename(smoother, lexicon, train_file2))
+    prior_lm1 = float(argv.pop(0))
+    assert prior_lm1 <= 1 and prior_lm1 >= 0
+    prior_lm2 = 1 - prior_lm1
     # We use natural log for our internal computations and that's
     # the kind of log-probability that fileLogProb returns.  
     # But we'd like to print a value in bits: so we convert
@@ -81,16 +84,26 @@ trainpath is the location of the training corpus
 
     total_cross_entropy1 = 0.
     total_cross_entropy2 = 0.
+    lm1_count = 0
+    lm2_count = 0
+
     for testfile in argv:
-      ce = lm1.filelogprob(testfile) / math.log(2)
-      print("{:g}\t{}".format(ce, testfile))
-      total_cross_entropy1 -= ce
-    print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entrop1y/sum([lm1.num_tokens(testfile) for testfile in argv])))
-    for testfile in argv:
-      ce = lm2.filelogprob(testfile) / math.log(2)
-      print("{:g}\t{}".format(ce, testfile))
-      total_cross_entropy -= ce
-    print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entropy2/sum([lm2.num_tokens(testfile) for testfile in argv])))
+      lm1_ce = (math.log(prior_lm1) + lm1.filelogprob(testfile)) / math.log(2)
+      lm2_ce = (math.log(prior_lm2) + lm2.filelogprob(testfile)) / math.log(2)
+      print(lm1_ce, lm2_ce)
+      if lm1_ce > lm2_ce:
+        lm1_count += 1
+        print(train_file1+'\t'+testfile)
+      else:
+        lm2_count += 1
+        print(train_file2+'\t'+testfile)
+      #print("{:g}\t{}".format(ce, testfile))
+      #total_cross_entropy1 -= ce
+    #print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entropy1/sum([lm1.num_tokens(testfile) for testfile in argv])))
+    print("{} files were probably {} ({}%)".format(lm1_count, train_file1, \
+      float(100 * lm1_count / (lm1_count + lm2_count))))
+    print("{} files were probably {} ({}%)".format(lm2_count, train_file2, \
+      float(100 * lm2_count / (lm1_count + lm2_count))))
   else:
     sys.exit(-1)
 
