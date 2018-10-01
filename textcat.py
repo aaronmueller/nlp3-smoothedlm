@@ -34,7 +34,7 @@ def get_model_filename(smoother, lexicon, train_file):
 def main():
   course_dir = '/usr/local/data/cs465/'
 
-  if len(sys.argv) < 5 or (sys.argv[1] == 'TRAIN' and len(sys.argv) != 5):
+  if len(sys.argv) < 5 or (sys.argv[1] == 'TRAIN' and len(sys.argv) != 6):
     print("""
 Prints the log-probability of each file under a smoothed n-gram model.
 
@@ -57,29 +57,40 @@ trainpath is the location of the training corpus
 
   smoother = argv.pop(0)
   lexicon = argv.pop(0)
-  train_file = argv.pop(0)
+  train_file1 = argv.pop(0)
+  train_file2 = argv.pop(0)
 
   if mode == 'TRAIN':
     lm = Probs.LanguageModel()
+    lm.setVocabSize(train_file1, train_file2)
     lm.set_smoother(smoother)
     lm.read_vectors(lexicon)
-    lm.train(train_file)
-    lm.save(get_model_filename(smoother, lexicon, train_file))
+    lm.train(train_file1)
+    lm.save(get_model_filename(smoother, lexicon, train_file1))
+    lm.train(train_file2)
+    lm.save(get_model_filename(smoother, lexicon, train_file2))
   elif mode == 'TEST':
     if not argv:
       print("warning: no input files specified")
-    lm = Probs.LanguageModel.load(get_model_filename(smoother, lexicon, train_file))
+    lm1 = Probs.LanguageModel.load(get_model_filename(smoother, lexicon, train_file1))
+    lm2 = Probs.LanguageModel.load(get_model_filename(smoother, lexicon, train_file2))
     # We use natural log for our internal computations and that's
     # the kind of log-probability that fileLogProb returns.  
     # But we'd like to print a value in bits: so we convert
     # log base e to log base 2 at print time, by dividing by log(2).
 
-    total_cross_entropy = 0.
+    total_cross_entropy1 = 0.
+    total_cross_entropy2 = 0.
     for testfile in argv:
-      ce = lm.filelogprob(testfile) / math.log(2)
+      ce = lm1.filelogprob(testfile) / math.log(2)
+      print("{:g}\t{}".format(ce, testfile))
+      total_cross_entropy1 -= ce
+    print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entrop1y/sum([lm1.num_tokens(testfile) for testfile in argv])))
+    for testfile in argv:
+      ce = lm2.filelogprob(testfile) / math.log(2)
       print("{:g}\t{}".format(ce, testfile))
       total_cross_entropy -= ce
-    print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entropy/sum([lm.num_tokens(testfile) for testfile in argv])))
+    print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entropy2/sum([lm2.num_tokens(testfile) for testfile in argv])))
   else:
     sys.exit(-1)
 
