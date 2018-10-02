@@ -82,29 +82,32 @@ trainpath is the location of the training corpus
     # But we'd like to print a value in bits: so we convert
     # log base e to log base 2 at print time, by dividing by log(2).
 
-    total_cross_entropy1 = 0.
-    total_cross_entropy2 = 0.
-    lm1_count = 0
-    lm2_count = 0
-
+    lm1_type = train_file1.split('/')[-1].split('.')[0]
+    lm2_type = train_file2.split('/')[-1].split('.')[0]
+    
+    file_correct = {}
+    file_total = {}
+    
     for testfile in argv:
-      file_length = testfile.split("/")[:-1].split(".")[1]
+      file_length = testfile.split("/")[-1].split(".")[1]
+      file_type = testfile.split("/")[-1].split(".")[0]
+
       lm1_ce = (math.log(prior_lm1) + lm1.filelogprob(testfile)) / math.log(2)
       lm2_ce = (math.log(prior_lm2) + lm2.filelogprob(testfile)) / math.log(2)
-      print(lm1_ce, lm2_ce)
+
+      file_total[file_length] = file_total.get(file_length, 0) + 1
+
       if lm1_ce > lm2_ce:
-        lm1_count += 1
-        print(train_file1+'\t'+testfile)
+          if file_type == lm1_type:
+              file_correct[file_length] = file_correct.get(file_length, 0) + 1
       else:
-        lm2_count += 1
-        print(train_file2+'\t'+testfile)
-      #print("{:g}\t{}".format(ce, testfile))
-      #total_cross_entropy1 -= ce
-    #print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entropy1/sum([lm1.num_tokens(testfile) for testfile in argv])))
-    print("{} files were probably {} ({}%)".format(lm1_count, train_file1, \
-      float(100 * lm1_count / (lm1_count + lm2_count))))
-    print("{} files were probably {} ({}%)".format(lm2_count, train_file2, \
-      float(100 * lm2_count / (lm1_count + lm2_count))))
+          if file_type == lm2_type:
+              file_correct[file_length] = file_correct.get(file_length, 0) + 1
+  
+    accuracies = {}
+    for key, value in file_total.items():
+        accuracies[key] = file_correct[key] / float(value)
+    print(accuracies)
   else:
     sys.exit(-1)
 
