@@ -86,13 +86,36 @@ class LanguageModel:
       # as is required for any probability function.
 
     elif self.smoother == "BACKOFF_ADDL":
-      sys.exit("BACKOFF_ADDL is not implemented yet (that's your job!)")
+      if x not in self.vocab:
+        x = OOV
+      if y not in self.vocab:
+        y = OOV
+      if z not in self.vocab:
+        z = OOV
+      lam_voc = self.lambdap * self.vocab_size
+      p_z = ((self.tokens.get(z, 0) + self.lambdap) /
+        (self.tokens.get("", 0) + self.lambdap * self.vocab_size))
+      p_yz = ((self.tokens.get((y, z), 0) + lam_voc * p_z) /
+        (self.tokens.get(z, 0) + lam_voc))
+      return ((self.tokens.get((x, y, z), 0) + lam_voc * p_yz) /
+        (self.tokens.get((x, y), 0) + lam_voc))
+
     elif self.smoother == "BACKOFF_WB":
       sys.exit("BACKOFF_WB is not implemented yet (that's your job!)")
     elif self.smoother == "LOGLINEAR":
       sys.exit("LOGLINEAR is not implemented yet (that's your job!)")
     else:
       sys.exit("%s has some weird value" % self.smoother)
+
+  def z_sum(self):
+    uni_sum = 0
+    for key, value in self.tokens.items():
+      if type(key) == str and key != "":
+        lam_voc = self.lambdap * self.vocab_size
+        p_z = ((self.tokens.get(key, 0) + self.lambdap) /
+          (self.tokens.get("", 0) + self.lambdap * self.vocab_size))
+        uni_sum += p_z
+    print(uni_sum)
 
   def filelogprob(self, filename):
     """Compute the log probability of the sequence of tokens in file.

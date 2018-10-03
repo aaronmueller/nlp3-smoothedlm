@@ -80,6 +80,7 @@ trainpath is the location of the training corpus
       print("{:g}\t{}".format(ce, testfile))
       total_cross_entropy -= ce
     print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entropy/sum([lm.num_tokens(testfile) for testfile in argv])))
+    print(lm.z_sum())
   else:
     sys.exit(-1)
 
