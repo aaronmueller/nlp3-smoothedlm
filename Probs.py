@@ -12,6 +12,7 @@ import math
 import random
 import re
 import sys
+import numpy as np
 
 BOS = 'BOS'   # special word type for context at Beginning Of Sequence
 EOS = 'EOS'   # special word type for observed token at End Of Sequence
@@ -103,7 +104,32 @@ class LanguageModel:
     elif self.smoother == "BACKOFF_WB":
       sys.exit("BACKOFF_WB is not implemented yet (that's your job!)")
     elif self.smoother == "LOGLINEAR":
-      sys.exit("LOGLINEAR is not implemented yet (that's your job!)")
+      if x not in self.vocab:
+        x = OOL
+      if y not in self.vocab:
+        y = OOL
+      if z not in self.vocab:
+        z = OOL
+
+      x_v = self.vectors[x]
+      y_v = self.vectors[y]
+      z_v = self.vectors[z]
+
+      E = np.transpose(np.array([self.vectors[key] for key in self.vectors],
+                                ndmin=2))
+
+      X_den = np.matmul(np.transpose(x_v), self.X)
+      Y_den = np.matmul(np.transpose(y_v), self.Y)
+      X_den = np.matmul(X_den, E)
+      Y_den = np.matmul(Y_den, E)
+      denom = np.sum(np.exp(X_den + Y_den))
+
+      X_num = np.matmul(np.transpose(x_v), self.X) 
+      Y_num = np.matmul(np.transpose(y_v), self.Y) 
+      X_num = np.matmul(X_num, z_v)
+      Y_num = np.matmul(Y_num, z_v)
+      num = np.exp(X_num + Y_num)
+      return num / denom
     else:
       sys.exit("%s has some weird value" % self.smoother)
 
@@ -208,7 +234,7 @@ class LanguageModel:
       self.Y = [[0.0 for _ in range(self.dim)] for _ in range(self.dim)]
 
       # Optimization parameters
-      gamma0 = 0.1  # initial learning rate, used to compute actual learning rate
+      gamma0 = 0.01  # initial learning rate, used to compute actual learning rate
       epochs = 10  # number of passes
 
       self.N = len(tokens_list) - 2  # number of training instances
@@ -227,9 +253,58 @@ class LanguageModel:
 
       sys.stderr.write("Start optimizing.\n")
 
-      #####################
-      # TODO: Implement your SGD here
-      #####################
+      E = np.transpose(np.array([self.vectors[key] for key in
+                                 self.vectors], ndmin=2))
+
+      iters = 0
+      for epoch in range(epochs):
+        print('starting epoch %d' % epoch)
+        for i in range(2, len(tokens_list)):
+          x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
+
+          x_v = self.vectors[x]
+          y_v = self.vectors[y]
+          z_v = self.vectors[z]
+
+          X_grad = np.outer(x_v, z_v)
+          Y_grad = np.outer(y_v, z_v)
+
+          X_all = np.matmul(np.transpose(x_v), self.X)
+          Y_all = np.matmul(np.transpose(y_v), self.Y)
+          X_all = np.matmul(X_all, E)
+          Y_all = np.matmul(Y_all, E)
+
+          All_probs = np.exp(X_all + Y_all)
+          Z = np.sum(All_probs)
+          All_probs = All_probs / Z
+
+          all_z = np.matmul(All_probs, np.transpose(E))
+        
+          xzf_prob = np.outer(x_v, all_z)
+          yzf_prob = np.outer(y_v, all_z)
+
+          X_grad = X_grad - xzf_prob
+          Y_grad = Y_grad - yzf_prob
+
+          X_grad = X_grad - (2 * self.lambdap) / self.N
+          Y_grad = Y_grad - (2 * self.lambdap) / self.N
+
+          gamma = gamma0 / (1 + gamma0 * iters * ((2 * self.lambdap) / self.N))
+
+          self.X = self.X + gamma * X_grad
+          self.Y = self.Y + gamma * Y_grad
+          iters += 1
+        print('finished epoch %d' % epoch)
+
+        prob_total = 0
+        for i in range(2, len(tokens_list)):
+          x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
+          print(self.prob(x,y,z))
+          prob_total += math.log(self.prob(x,y,z))
+        reg_ssq = (np.sum(self.X**2) + np.sum(self.Y**2)) * self.lambdap
+        print(prob_total)
+        print(reg_ssq)
+        print((prob_total) / self.N)
 
     sys.stderr.write("Finished training on %d tokens\n" % self.tokens[""])
 
