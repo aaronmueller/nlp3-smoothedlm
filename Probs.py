@@ -104,19 +104,20 @@ class LanguageModel:
     elif self.smoother == "BACKOFF_WB":
       sys.exit("BACKOFF_WB is not implemented yet (that's your job!)")
     elif self.smoother == "LOGLINEAR":
-      if x not in self.vectors:
+      if x not in self.vocab:
         x = OOL
-      if y not in self.vectors:
+      if y not in self.vocab:
         y = OOL
-      if z not in self.vectors:
+      if z not in self.vocab:
         z = OOL
 
       x_v = self.vectors[x]
       y_v = self.vectors[y]
       z_v = self.vectors[z]
 
-      E = np.transpose(np.array([self.vectors[key] for key in self.vectors],
-                                ndmin=2))
+      vocab_idx = [key if key != OOV else OOL for key in self.vocab]
+      E = np.transpose(np.array([self.vectors[key] for key in
+                                 vocab_idx], ndmin=2))
 
       X_den = np.matmul(np.matmul(np.transpose(x_v), self.X), E)
       Y_den = np.matmul(np.matmul(np.transpose(y_v), self.Y), E)
@@ -126,7 +127,7 @@ class LanguageModel:
       Y_num = np.matmul(np.matmul(np.transpose(y_v), self.Y), z_v)
 
       num = np.exp(X_num + Y_num)
-      return num / denom 
+      return num / denom
     else:
       sys.exit("%s has some weird value" % self.smoother)
 
@@ -239,8 +240,9 @@ class LanguageModel:
       # **************************
 
       # word embedding matrix (num_dims x vocab)
+      vocab_idx = [key if key != OOV else OOL for key in self.vocab]
       E = np.transpose(np.array([self.vectors[key] for key in
-                                 self.vectors], ndmin=2))
+                                 vocab_idx], ndmin=2))
 
       t = 0
       for epoch in range(epochs):
@@ -252,17 +254,15 @@ class LanguageModel:
           y_v = self.vectors[y]
           z_v = self.vectors[z]
 
-          # feature matrix
+          # feature matrix (first term)
           X_feats = np.outer(x_v, z_v)
           Y_feats = np.outer(y_v, z_v)
 
-          # Calculating the probabilities for x, y, z' for all z' in V 
+          # Calc Z
           all_z_x_score = np.matmul(np.matmul(np.transpose(x_v), self.X), E)
           all_z_y_score = np.matmul(np.matmul(np.transpose(y_v), self.Y), E)
           all_z_xy_score = np.exp(all_z_x_score + all_z_y_score)
           Z = np.sum(all_z_xy_score)
-          # a vector of probabilities: shape (V)
-
 
           # Compute the middle term - expected values for each feature
 
@@ -272,19 +272,19 @@ class LanguageModel:
           # expected_X_feats = np.zeros((self.dim, self.dim))
           # expected_Y_feats = np.zeros((self.dim, self.dim))
 
-          # prob_total = 0.0
-          # for z_p in self.vectors:
+          # for z_p in self.vocab:
+          #   if z_p == OOV:
+          #       z_p = OOL
           #   z_p_v = self.vectors[z_p]
           #   X_features = np.outer(x_v, z_p_v)
           #   Y_features = np.outer(y_v, z_p_v)
     
-          #   x_prob = np.matmul(np.matmul(x_v, self.X), z_p_v)
-          #   y_prob = np.matmul(np.matmul(y_v, self.Y), z_p_v)
-          #   expected_X_feats = np.exp(x_prob + y_prob) / Z
-          #   expected_Y_feats += prob_xyzp
+          #   zp_x_prob = np.matmul(np.matmul(x_v, self.X), z_p_v)
+          #   zp_y_prob = np.matmul(np.matmul(y_v, self.Y), z_p_v)
+          #   xyzp_prob = np.exp(zp_x_prob + zp_y_prob) / Z
 
-          #   xzf_prob += prob_xyzp * X_features
-          #   yzf_prob += prob_xyzp * Y_features
+          #   expected_X_feats += xyzp_prob * X_features
+          #   expected_Y_feats += xyzp_prob * Y_features
 
           # -- end unrolled version
 
@@ -295,6 +295,9 @@ class LanguageModel:
 
           expected_z_avg = np.matmul(all_z_xy_prob, np.transpose(E))
        
+          expected_X_feats = np.outer(x_v, expected_z_avg)
+          expected_Y_feats = np.outer(y_v, expected_z_avg)
+
           expected_X_feats = np.outer(x_v, expected_z_avg)
           expected_Y_feats = np.outer(y_v, expected_z_avg)
 
@@ -327,7 +330,6 @@ class LanguageModel:
         reg_ssq = (np.sum(self.X**2) + np.sum(self.Y**2)) * self.lambdap
         F = (prob_total - reg_ssq) / self.N
         print('epoch %d: F=%f' % (epoch + 1, F))
-
     sys.stderr.write("Finished training on %d tokens\n" % self.tokens[""])
 
   def count(self, x, y, z):
