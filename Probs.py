@@ -104,11 +104,11 @@ class LanguageModel:
     elif self.smoother == "BACKOFF_WB":
       sys.exit("BACKOFF_WB is not implemented yet (that's your job!)")
     elif self.smoother == "LOGLINEAR":
-      if x not in self.vocab:
+      if x not in self.vectors:
         x = OOL
-      if y not in self.vocab:
+      if y not in self.vectors:
         y = OOL
-      if z not in self.vocab:
+      if z not in self.vectors:
         z = OOL
 
       x_v = self.vectors[x]
@@ -118,30 +118,17 @@ class LanguageModel:
       E = np.transpose(np.array([self.vectors[key] for key in self.vectors],
                                 ndmin=2))
 
-      X_den = np.matmul(np.transpose(x_v), self.X)
-      Y_den = np.matmul(np.transpose(y_v), self.Y)
-      X_den = np.matmul(X_den, E)
-      Y_den = np.matmul(Y_den, E)
+      X_den = np.matmul(np.matmul(np.transpose(x_v), self.X), E)
+      Y_den = np.matmul(np.matmul(np.transpose(y_v), self.Y), E)
       denom = np.sum(np.exp(X_den + Y_den))
+    
+      X_num = np.matmul(np.matmul(np.transpose(x_v), self.X), z_v)
+      Y_num = np.matmul(np.matmul(np.transpose(y_v), self.Y), z_v)
 
-      X_num = np.matmul(np.transpose(x_v), self.X) 
-      Y_num = np.matmul(np.transpose(y_v), self.Y) 
-      X_num = np.matmul(X_num, z_v)
-      Y_num = np.matmul(Y_num, z_v)
       num = np.exp(X_num + Y_num)
-      return num / denom
+      return num / denom 
     else:
       sys.exit("%s has some weird value" % self.smoother)
-
-  def z_sum(self):
-    uni_sum = 0
-    for key, value in self.tokens.items():
-      if type(key) == str and key != "":
-        lam_voc = self.lambdap * self.vocab_size
-        p_z = ((self.tokens.get(key, 0) + self.lambdap) /
-          (self.tokens.get("", 0) + self.lambdap * self.vocab_size))
-        uni_sum += p_z
-    print(uni_sum)
 
   def filelogprob(self, filename):
     """Compute the log probability of the sequence of tokens in file.
@@ -251,14 +238,11 @@ class LanguageModel:
       #
       # **************************
 
-      sys.stderr.write("Start optimizing.\n")
-
       E = np.transpose(np.array([self.vectors[key] for key in
                                  self.vectors], ndmin=2))
 
       iters = 0
       for epoch in range(epochs):
-        print('starting epoch %d' % epoch)
         for i in range(2, len(tokens_list)):
           x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
 
@@ -266,8 +250,9 @@ class LanguageModel:
           y_v = self.vectors[y]
           z_v = self.vectors[z]
 
-          X_grad = np.outer(x_v, z_v)
-          Y_grad = np.outer(y_v, z_v)
+          X_feats = np.outer(x_v, z_v)
+          Y_feats = np.outer(y_v, z_v)
+
 
           X_all = np.matmul(np.transpose(x_v), self.X)
           Y_all = np.matmul(np.transpose(y_v), self.Y)
@@ -278,33 +263,44 @@ class LanguageModel:
           Z = np.sum(All_probs)
           All_probs = All_probs / Z
 
+          #xzf_prob = np.zeros((self.dim, self.dim))
+          #yzf_prob = np.zeros((self.dim, self.dim))
+
+          #for z_p in self.vectors:
+          #  z_p_v = self.vectors[z_p]
+          #  X_features = np.outer(x_v, z_p_v)
+          #  Y_features = np.outer(y_v, z_p_v)
+    
+          #  x_prob = np.matmul(np.matmul(x_v, self.X), z_p_v) / Z
+          #  y_prob = np.matmul(np.matmul(y_v, self.Y), z_p_v) / Z
+
+          #  xzf_prob += x_prob * X_features
+          #  yzf_prob += y_prob * Y_features
+
           all_z = np.matmul(All_probs, np.transpose(E))
         
           xzf_prob = np.outer(x_v, all_z)
           yzf_prob = np.outer(y_v, all_z)
 
-          X_grad = X_grad - xzf_prob
-          Y_grad = Y_grad - yzf_prob
+          X_reg = np.array(self.X) * ((2 * self.lambdap) / self.N)
+          Y_reg = np.array(self.Y) * ((2 * self.lambdap) / self.N)
 
-          X_grad = X_grad - (2 * self.lambdap) / self.N
-          Y_grad = Y_grad - (2 * self.lambdap) / self.N
+          X_grad = X_feats - xzf_prob - X_reg
+          Y_grad = Y_feats - yzf_prob - Y_reg
 
-          gamma = gamma0 / (1 + gamma0 * iters * ((2 * self.lambdap) / self.N))
+          gamma = gamma0 / (1 + (gamma0 * iters * ((2 * self.lambdap) / self.N)))
 
-          self.X = self.X + gamma * X_grad
-          self.Y = self.Y + gamma * Y_grad
+          self.X += gamma * X_grad
+          self.Y += gamma * Y_grad
           iters += 1
-        print('finished epoch %d' % epoch)
 
         prob_total = 0
         for i in range(2, len(tokens_list)):
           x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
-          print(self.prob(x,y,z))
           prob_total += math.log(self.prob(x,y,z))
         reg_ssq = (np.sum(self.X**2) + np.sum(self.Y**2)) * self.lambdap
-        print(prob_total)
-        print(reg_ssq)
-        print((prob_total) / self.N)
+        F = (prob_total - reg_ssq) / self.N
+        print('epoch %d: F=%f' % (epoch + 1, F))
 
     sys.stderr.write("Finished training on %d tokens\n" % self.tokens[""])
 
