@@ -238,61 +238,87 @@ class LanguageModel:
       #
       # **************************
 
+      # word embedding matrix (num_dims x vocab)
       E = np.transpose(np.array([self.vectors[key] for key in
                                  self.vectors], ndmin=2))
 
-      iters = 0
+      t = 0
       for epoch in range(epochs):
         for i in range(2, len(tokens_list)):
           x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
 
+          # our word vecs
           x_v = self.vectors[x]
           y_v = self.vectors[y]
           z_v = self.vectors[z]
 
+          # feature matrix
           X_feats = np.outer(x_v, z_v)
           Y_feats = np.outer(y_v, z_v)
 
+          # Calculating the probabilities for x, y, z' for all z' in V 
+          all_z_x_score = np.matmul(np.matmul(np.transpose(x_v), self.X), E)
+          all_z_y_score = np.matmul(np.matmul(np.transpose(y_v), self.Y), E)
+          all_z_xy_score = np.exp(all_z_x_score + all_z_y_score)
+          Z = np.sum(all_z_xy_score)
+          # a vector of probabilities: shape (V)
 
-          X_all = np.matmul(np.transpose(x_v), self.X)
-          Y_all = np.matmul(np.transpose(y_v), self.Y)
-          X_all = np.matmul(X_all, E)
-          Y_all = np.matmul(Y_all, E)
 
-          All_probs = np.exp(X_all + Y_all)
-          Z = np.sum(All_probs)
-          All_probs = All_probs / Z
+          # Compute the middle term - expected values for each feature
 
-          #xzf_prob = np.zeros((self.dim, self.dim))
-          #yzf_prob = np.zeros((self.dim, self.dim))
+          # -- Unrolled version
 
-          #for z_p in self.vectors:
-          #  z_p_v = self.vectors[z_p]
-          #  X_features = np.outer(x_v, z_p_v)
-          #  Y_features = np.outer(y_v, z_p_v)
+          # init our gradient term for expected values
+          # expected_X_feats = np.zeros((self.dim, self.dim))
+          # expected_Y_feats = np.zeros((self.dim, self.dim))
+
+          # prob_total = 0.0
+          # for z_p in self.vectors:
+          #   z_p_v = self.vectors[z_p]
+          #   X_features = np.outer(x_v, z_p_v)
+          #   Y_features = np.outer(y_v, z_p_v)
     
-          #  x_prob = np.matmul(np.matmul(x_v, self.X), z_p_v) / Z
-          #  y_prob = np.matmul(np.matmul(y_v, self.Y), z_p_v) / Z
+          #   x_prob = np.matmul(np.matmul(x_v, self.X), z_p_v)
+          #   y_prob = np.matmul(np.matmul(y_v, self.Y), z_p_v)
+          #   expected_X_feats = np.exp(x_prob + y_prob) / Z
+          #   expected_Y_feats += prob_xyzp
 
-          #  xzf_prob += x_prob * X_features
-          #  yzf_prob += y_prob * Y_features
+          #   xzf_prob += prob_xyzp * X_features
+          #   yzf_prob += prob_xyzp * Y_features
 
-          all_z = np.matmul(All_probs, np.transpose(E))
-        
-          xzf_prob = np.outer(x_v, all_z)
-          yzf_prob = np.outer(y_v, all_z)
+          # -- end unrolled version
 
+          # -- The above loop, but compacted into matrix mults.
+          # I've verified that these have the same results
+
+          all_z_xy_prob = all_z_xy_score / Z
+
+          expected_z_avg = np.matmul(all_z_xy_prob, np.transpose(E))
+       
+          expected_X_feats = np.outer(x_v, expected_z_avg)
+          expected_Y_feats = np.outer(y_v, expected_z_avg)
+
+          # -- end matrix version
+
+          # regularization gradient terms
           X_reg = np.array(self.X) * ((2 * self.lambdap) / self.N)
           Y_reg = np.array(self.Y) * ((2 * self.lambdap) / self.N)
 
-          X_grad = X_feats - xzf_prob - X_reg
-          Y_grad = Y_feats - yzf_prob - Y_reg
+          # compute gradient.
+          # observed feature values - expected feature values - reg term
+          X_grad = X_feats - expected_X_feats - X_reg
+          Y_grad = Y_feats - expected_Y_feats - Y_reg
 
-          gamma = gamma0 / (1 + (gamma0 * iters * ((2 * self.lambdap) / self.N)))
+          # compute gamma
+          gamma = gamma0 / (1 + (gamma0 * t * ((2 * self.lambdap) / self.N)))
+          # gamma = gamma0
 
+          # update
           self.X += gamma * X_grad
           self.Y += gamma * Y_grad
-          iters += 1
+        
+          # increase t for gamma comp
+          t += 1
 
         prob_total = 0
         for i in range(2, len(tokens_list)):
