@@ -15,6 +15,7 @@ from __future__ import print_function
 
 import math
 import sys
+from os.path import basename
 
 import Probs
 
@@ -82,27 +83,24 @@ trainpath is the location of the training corpus
     # But we'd like to print a value in bits: so we convert
     # log base e to log base 2 at print time, by dividing by log(2).
 
-    total_cross_entropy1 = 0.
-    total_cross_entropy2 = 0.
     lm1_count = 0
     lm2_count = 0
+
+    train_file1 = basename(train_file1)
+    train_file2 = basename(train_file2)
 
     for testfile in argv:
       lm1_ce = (math.log(prior_lm1) + lm1.filelogprob(testfile)) / math.log(2)
       lm2_ce = (math.log(prior_lm2) + lm2.filelogprob(testfile)) / math.log(2)
-      print(lm1_ce, lm2_ce)
       if lm1_ce > lm2_ce:
         lm1_count += 1
         print(train_file1+'\t'+testfile)
       else:
         lm2_count += 1
         print(train_file2+'\t'+testfile)
-      #print("{:g}\t{}".format(ce, testfile))
-      #total_cross_entropy1 -= ce
-    #print('Overall cross-entropy:\t{0:.5f}'.format(total_cross_entropy1/sum([lm1.num_tokens(testfile) for testfile in argv])))
-    print("{} files were probably {} ({}%)".format(lm1_count, train_file1, \
+    print("{0:d} files were more probably {1:s} ({2:.2f}%)".format(lm1_count, train_file1, \
       float(100 * lm1_count / (lm1_count + lm2_count))))
-    print("{} files were probably {} ({}%)".format(lm2_count, train_file2, \
+    print("{0:d} files were more probably {1:s} ({2:.2f}%)".format(lm2_count, train_file2, \
       float(100 * lm2_count / (lm1_count + lm2_count))))
   else:
     sys.exit(-1)

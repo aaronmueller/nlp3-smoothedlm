@@ -104,23 +104,19 @@ class LanguageModel:
     elif self.smoother == "BACKOFF_WB":
       sys.exit("BACKOFF_WB is not implemented yet (that's your job!)")
     elif self.smoother == "LOGLINEAR":
-      if x not in self.vocab:
+      if x not in self.vocab or x not in self.vectors:
         x = OOL
-      if y not in self.vocab:
+      if y not in self.vocab or y not in self.vectors:
         y = OOL
-      if z not in self.vocab:
+      if z not in self.vocab or z not in self.vectors:
         z = OOL
 
       x_v = self.vectors[x]
       y_v = self.vectors[y]
       z_v = self.vectors[z]
 
-      vocab_idx = [key if key != OOV else OOL for key in self.vocab]
-      E = np.transpose(np.array([self.vectors[key] for key in
-                                 vocab_idx], ndmin=2))
-
-      X_den = np.matmul(np.matmul(np.transpose(x_v), self.X), E)
-      Y_den = np.matmul(np.matmul(np.transpose(y_v), self.Y), E)
+      X_den = np.matmul(np.matmul(np.transpose(x_v), self.X), self.E)
+      Y_den = np.matmul(np.matmul(np.transpose(y_v), self.Y), self.E)
       denom = np.sum(np.exp(X_den + Y_den))
     
       X_num = np.matmul(np.matmul(np.transpose(x_v), self.X), z_v)
@@ -215,6 +211,26 @@ class LanguageModel:
     self.count(x, y, EOS)     # count EOS "end of sequence" token after the final context
     corpus.close()
     if self.smoother == 'LOGLINEAR': 
+
+      # Build E - Some special treatment here
+      # it's possible for an item to be in our vocab that we don't have in our
+      # lexicons. In this case it's OOL, but it won't be marked as OOV by our
+      # vocab check. 
+      # Additionally, it's possible for us to have lexicons for
+      # terms that are not in our vocab. We _should_ treat these as OOL terms,
+      # even though we have lexicons for them.
+      # The idea behind this loop is that we create an E that includes only
+      # lexicons that are both in our vocab and which we have lexicons for, and
+      # we'll use that when we're computing Z etc. and also when we're
+      # considering things that make up our V.
+      voc_with_lexicons = []
+      for vocab_term in self.vocab:
+          if vocab_term == OOV:
+              voc_with_lexicons.append(OOL)
+          elif vocab_term in self.vectors:
+              voc_with_lexicons.append(vocab_term)
+      self.E = np.transpose([self.vectors[voc] for voc in voc_with_lexicons])
+
       # Train the log-linear model using SGD.
 
       # Initialize parameters
@@ -240,9 +256,6 @@ class LanguageModel:
       # **************************
 
       # word embedding matrix (num_dims x vocab)
-      vocab_idx = [key if key != OOV else OOL for key in self.vocab]
-      E = np.transpose(np.array([self.vectors[key] for key in
-                                 vocab_idx], ndmin=2))
 
       t = 0
       for epoch in range(epochs):
@@ -259,8 +272,8 @@ class LanguageModel:
           Y_feats = np.outer(y_v, z_v)
 
           # Calc Z
-          all_z_x_score = np.matmul(np.matmul(np.transpose(x_v), self.X), E)
-          all_z_y_score = np.matmul(np.matmul(np.transpose(y_v), self.Y), E)
+          all_z_x_score = np.matmul(np.matmul(np.transpose(x_v), self.X), self.E)
+          all_z_y_score = np.matmul(np.matmul(np.transpose(y_v), self.Y), self.E)
           all_z_xy_score = np.exp(all_z_x_score + all_z_y_score)
           Z = np.sum(all_z_xy_score)
 
@@ -293,11 +306,8 @@ class LanguageModel:
 
           all_z_xy_prob = all_z_xy_score / Z
 
-          expected_z_avg = np.matmul(all_z_xy_prob, np.transpose(E))
+          expected_z_avg = np.matmul(all_z_xy_prob, np.transpose(self.E))
        
-          expected_X_feats = np.outer(x_v, expected_z_avg)
-          expected_Y_feats = np.outer(y_v, expected_z_avg)
-
           expected_X_feats = np.outer(x_v, expected_z_avg)
           expected_Y_feats = np.outer(y_v, expected_z_avg)
 
@@ -323,13 +333,13 @@ class LanguageModel:
           # increase t for gamma comp
           t += 1
 
-        prob_total = 0
+        prob_total = 0.
         for i in range(2, len(tokens_list)):
           x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
           prob_total += math.log(self.prob(x,y,z))
         reg_ssq = (np.sum(self.X**2) + np.sum(self.Y**2)) * self.lambdap
         F = (prob_total - reg_ssq) / self.N
-        print('epoch %d: F=%f' % (epoch + 1, F))
+        sys.stderr.write('epoch %d: F=%f\n' % (epoch + 1, F))
     sys.stderr.write("Finished training on %d tokens\n" % self.tokens[""])
 
   def count(self, x, y, z):
