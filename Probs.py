@@ -115,15 +115,28 @@ class LanguageModel:
       y_v = self.vectors[y]
       z_v = self.vectors[z]
 
-      X_den = np.matmul(np.matmul(np.transpose(x_v), self.X), self.E)
-      Y_den = np.matmul(np.matmul(np.transpose(y_v), self.Y), self.E)
-      denom = np.sum(np.exp(X_den + Y_den))
-    
+      # feature matrix (first term)
+      X_feats = np.outer(x_v, z_v)
+      Y_feats = np.outer(y_v, z_v)
+      Z_feats = self.extract_features(x,y,z)
+
+      # Calc Z
+      all_z_x_score = np.matmul(np.matmul(np.transpose(x_v), self.X), self.E)
+      all_z_y_score = np.matmul(np.matmul(np.transpose(y_v), self.Y), self.E)
+
+      all_z_feats = []
+      for voc in self.vocab:
+        all_z_feats.append(self.extract_features(x,y,voc))
+      all_z_z_score = np.matmul(self.Z, np.transpose(all_z_feats))
+      all_z_xy_score = np.exp(all_z_x_score + all_z_y_score + all_z_z_score)
+      Z = np.sum(all_z_xy_score)
+
       X_num = np.matmul(np.matmul(np.transpose(x_v), self.X), z_v)
       Y_num = np.matmul(np.matmul(np.transpose(y_v), self.Y), z_v)
+      Z_num = np.matmul(np.transpose(self.extract_features(x,y,z)), self.Z)
 
-      num = np.exp(X_num + Y_num)
-      return num / denom
+      num = np.exp(X_num + Y_num + Z_num)
+      return num / Z 
     else:
       sys.exit("%s has some weird value" % self.smoother)
 
@@ -157,6 +170,36 @@ class LanguageModel:
         arr = line.split()
         word = arr.pop(0)
         self.vectors[word] = [float(x) for x in arr]
+
+  def build_feature_indexer(self, tokens_list):
+    """ builds up a set of features from the training corpus """
+    self.feature_indexer = {}
+    
+    """ iterate through training examples """
+    for i in range(2, len(tokens_list)):
+        x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
+
+        # unigram features
+        if z not in self.feature_indexer:
+            self.feature_indexer[z] = len(self.feature_indexer)
+
+        if (y,z) not in self.feature_indexer:
+            self.feature_indexer[(y,z)] = len(self.feature_indexer)
+
+        if (x, y,z) not in self.feature_indexer:
+            self.feature_indexer[(x, y,z)] = len(self.feature_indexer)
+
+  def extract_features(self, x,y,z):
+    """ pull out indicator features that we want in our model as well """
+    features = np.zeros(len(self.feature_indexer))
+    if z in self.feature_indexer:
+        features[self.feature_indexer[z]] = 1
+    if (y, z) in self.feature_indexer:
+        features[self.feature_indexer[(y,z)]] = 1
+
+    if (x,y,z) in self.feature_indexer:
+        features[self.feature_indexer[(x,y,z)]] = 1
+    return features
 
   def train (self, filename):
     """Read the training corpus and collect any information that will be needed
@@ -212,31 +255,31 @@ class LanguageModel:
     corpus.close()
     if self.smoother == 'LOGLINEAR': 
 
-      # Build E - Some special treatment here
-      # it's possible for an item to be in our vocab that we don't have in our
-      # lexicons. In this case it's OOL, but it won't be marked as OOV by our
-      # vocab check. 
-      # Additionally, it's possible for us to have lexicons for
-      # terms that are not in our vocab. We _should_ treat these as OOL terms,
-      # even though we have lexicons for them.
-      # The idea behind this loop is that we create an E that includes only
-      # lexicons that are both in our vocab and which we have lexicons for, and
-      # we'll use that when we're computing Z etc. and also when we're
-      # considering things that make up our V.
-      voc_with_lexicons = []
-      for vocab_term in self.vocab:
-          if vocab_term == OOV:
-              voc_with_lexicons.append(OOL)
-          elif vocab_term in self.vectors:
-              voc_with_lexicons.append(vocab_term)
-      self.E = np.transpose([self.vectors[voc] for voc in voc_with_lexicons])
+      # build E and some surrounding objects.
+      # voc_with_lexicons is our vocabulary, but with every OOL term replaced.
+      # self.voc_to_idx is a way of converting our voc terms to the appropriate
+      # entry in E (i want this for computing gradients)
 
+      self.voc_with_lexicons = []
+      self.voc_to_idx = {}
+      for vocab_term in self.vocab:
+          if vocab_term not in self.vectors:
+              self.voc_with_lexicons.append(OOL)
+              self.voc_to_idx[vocab_term] = len(self.voc_with_lexicons) - 1
+          else:
+              self.voc_with_lexicons.append(vocab_term)
+              self.voc_to_idx[vocab_term] = len(self.voc_with_lexicons) - 1
+      self.E = np.transpose([self.vectors[voc] for voc in self.voc_with_lexicons])
+
+      # build the tokens list
+      self.build_feature_indexer(tokens_list)
       # Train the log-linear model using SGD.
 
       # Initialize parameters
       self.X = [[0.0 for _ in range(self.dim)] for _ in range(self.dim)]
       self.Y = [[0.0 for _ in range(self.dim)] for _ in range(self.dim)]
-
+      self.Z = np.zeros(len(self.feature_indexer))
+    
       # Optimization parameters
       gamma0 = 0.01  # initial learning rate, used to compute actual learning rate
       epochs = 10  # number of passes
@@ -270,11 +313,17 @@ class LanguageModel:
           # feature matrix (first term)
           X_feats = np.outer(x_v, z_v)
           Y_feats = np.outer(y_v, z_v)
+          Z_feats = self.extract_features(x,y,z)
 
           # Calc Z
           all_z_x_score = np.matmul(np.matmul(np.transpose(x_v), self.X), self.E)
           all_z_y_score = np.matmul(np.matmul(np.transpose(y_v), self.Y), self.E)
-          all_z_xy_score = np.exp(all_z_x_score + all_z_y_score)
+
+          all_z_feats = []
+          for voc in self.vocab:
+            all_z_feats.append(self.extract_features(x,y,voc))
+          all_z_z_score = np.matmul(self.Z, np.transpose(all_z_feats))
+          all_z_xy_score = np.exp(all_z_x_score + all_z_y_score + all_z_z_score)
           Z = np.sum(all_z_xy_score)
 
           # Compute the middle term - expected values for each feature
@@ -307,6 +356,8 @@ class LanguageModel:
           all_z_xy_prob = all_z_xy_score / Z
 
           expected_z_avg = np.matmul(all_z_xy_prob, np.transpose(self.E))
+
+          expected_Z_feats = np.matmul(all_z_xy_prob, all_z_feats)
        
           expected_X_feats = np.outer(x_v, expected_z_avg)
           expected_Y_feats = np.outer(y_v, expected_z_avg)
@@ -316,11 +367,13 @@ class LanguageModel:
           # regularization gradient terms
           X_reg = np.array(self.X) * ((2 * self.lambdap) / self.N)
           Y_reg = np.array(self.Y) * ((2 * self.lambdap) / self.N)
+          Z_reg = self.Z * ((2 * self.lambdap) / self.N)
 
           # compute gradient.
           # observed feature values - expected feature values - reg term
           X_grad = X_feats - expected_X_feats - X_reg
           Y_grad = Y_feats - expected_Y_feats - Y_reg
+          Z_grad = Z_feats - expected_Z_feats - Z_reg
 
           # compute gamma
           gamma = gamma0 / (1 + (gamma0 * t * ((2 * self.lambdap) / self.N)))
@@ -329,6 +382,7 @@ class LanguageModel:
           # update
           self.X += gamma * X_grad
           self.Y += gamma * Y_grad
+          self.Z += gamma * Z_grad
         
           # increase t for gamma comp
           t += 1
@@ -337,7 +391,7 @@ class LanguageModel:
         for i in range(2, len(tokens_list)):
           x, y, z = tokens_list[i - 2], tokens_list[i - 1], tokens_list[i]
           prob_total += math.log(self.prob(x,y,z))
-        reg_ssq = (np.sum(self.X**2) + np.sum(self.Y**2)) * self.lambdap
+        reg_ssq = (np.sum(self.X**2) + np.sum(self.Y**2) + np.sum(self.Z**2)) * self.lambdap
         F = (prob_total - reg_ssq) / self.N
         sys.stderr.write('epoch %d: F=%f\n' % (epoch + 1, F))
     sys.stderr.write("Finished training on %d tokens\n" % self.tokens[""])
