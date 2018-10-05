@@ -99,9 +99,9 @@ trainpath is the location of the training corpus
         lm2_count += 1
         print(train_file2+'\t'+testfile)
     print("{0:d} files were more probably {1:s} ({2:.2f}%)".format(lm1_count, train_file1, \
-      float(100 * lm1_count / (lm1_count + lm2_count))))
+      float(100.0 * lm1_count / (lm1_count + lm2_count))))
     print("{0:d} files were more probably {1:s} ({2:.2f}%)".format(lm2_count, train_file2, \
-      float(100 * lm2_count / (lm1_count + lm2_count))))
+      float(100.0 * lm2_count / (lm1_count + lm2_count))))
   else:
     sys.exit(-1)
 
