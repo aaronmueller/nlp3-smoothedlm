@@ -284,7 +284,7 @@ class LanguageModel:
     sys.stderr.write('\n')    # done printing progress dots "...."
     self.count(x, y, EOS)     # count EOS "end of sequence" token after the final context
     corpus.close()
-    if self.smoother == 'LOGLINEAR' or self.smoother == "IMPROVED": 
+    if self.smoother == 'LOGLINEAR': 
 
       # build E and some surrounding objects.
       # voc_with_lexicons is our vocabulary, but with every OOL term replaced.
