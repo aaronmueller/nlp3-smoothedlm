@@ -1,0 +1,1 @@
+backoff_add0.14 chars-10.txt en.1K sp.1K

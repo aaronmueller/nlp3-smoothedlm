@@ -97,7 +97,7 @@ class LanguageModel:
       p_z = ((self.tokens.get(z, 0) + self.lambdap) /
         (self.tokens.get("", 0) + self.lambdap * self.vocab_size))
       p_yz = ((self.tokens.get((y, z), 0) + lam_voc * p_z) /
-        (self.tokens.get(z, 0) + lam_voc))
+        (self.tokens.get(y, 0) + lam_voc))
       return ((self.tokens.get((x, y, z), 0) + lam_voc * p_yz) /
         (self.tokens.get((x, y), 0) + lam_voc))
 
