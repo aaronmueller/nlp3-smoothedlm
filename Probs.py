@@ -210,7 +210,7 @@ class LanguageModel:
     sys.stderr.write('\n')    # done printing progress dots "...."
     self.count(x, y, EOS)     # count EOS "end of sequence" token after the final context
     corpus.close()
-    if self.smoother == 'LOGLINEAR': 
+    if self.smoother == 'LOGLINEAR' or self.smoother == "IMPROVED": 
 
       # Build E - Some special treatment here
       # it's possible for an item to be in our vocab that we don't have in our
@@ -417,13 +417,19 @@ class LanguageModel:
       self.smoother = "BACKOFF_ADDL"
     elif smoother_name.lower() == 'backoff_wb':
       self.smoother = "BACKOFF_WB"
-    elif smoother_name.lower() == 'loglinear':
+    elif smoother_name.lower() == 'loglinear' or smoother_name.lower() == 'loglin':
       self.smoother = "LOGLINEAR"
+    elif smoother_name.lower() == 'improved':
+      self.smoother = "IMPROVED"
     else:
       sys.exit("Don't recognize smoother name '%s'" % smoother_name)
     
     if self.lambdap is None and self.smoother.find('ADDL') != -1:
       sys.exit('You must include a non-negative lambda value in smoother name "%s"' % arg)
+    elif self.lambdap is None and self.smoother == "LOGLINEAR":
+      self.lambdap = 1
+    elif self.lambdap is None and self.smoother == "IMPROVED":
+      self.lambdap = 1
 
   def open_corpus(self, filename):
     """Associates handle CORPUS with the training corpus named by filename."""
